@@ -6,5 +6,5 @@
 - Play
 
 ## Libraries
-install opencv-python pillow python-vlc screeninfo
-FFmpeg installation also may be needed https://ffmpeg.org/download.html
+-install opencv-python pillow python-vlc screeninfo
+-FFmpeg installation also may be needed https://ffmpeg.org/download.html
