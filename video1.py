@@ -23,6 +23,7 @@ DATA_FILE = "video_player_data.json"
 
 class VideoPlayer:
     def __init__(self, master):
+        self.slider_update_in_progress = False
         self.master = master
         self.master.title("Main Video Window")
         self.master.geometry("800x600")
@@ -69,7 +70,22 @@ class VideoPlayer:
         # Bind keyboard shortcuts
         self.master.bind('<space>', self.toggle_play_pause)
         self.master.bind('<Left>', lambda event: self.seek_relative(-5))
+        self.master.bind('1', lambda event: self.seek_relative(-1))
+        self.master.bind('2', lambda event: self.seek_relative(-2))
+        self.master.bind('3', lambda event: self.seek_relative(-3))
+        self.master.bind('4', lambda event: self.seek_relative(-4))
+        self.master.bind('5', lambda event: self.seek_relative(-5))
+        self.master.bind('6', lambda event: self.seek_relative(-6))
+        self.master.bind('7', lambda event: self.seek_relative(-7))
+        self.master.bind('8', lambda event: self.seek_relative(-8))
+        self.master.bind('9', lambda event: self.seek_relative(-9))
         self.master.bind('<Right>', lambda event: self.seek_relative(5))
+        self.master.bind('+', self.jump_to_next_subtitle)
+        
+
+        
+        # Add bindings for numeric keys 1-9
+        
 
         # Initialize audio and subtitle stream variables
         self.current_audio_track = -1
@@ -274,6 +290,18 @@ class VideoPlayer:
         self.controls_window.bind('<space>', self.toggle_play_pause)
         self.controls_window.bind('<Left>', lambda event: self.seek_relative(-5))
         self.controls_window.bind('<Right>', lambda event: self.seek_relative(5))
+        self.controls_window.bind('1', lambda event: self.seek_relative(-1))
+        self.controls_window.bind('2', lambda event: self.seek_relative(-2))
+        self.controls_window.bind('3', lambda event: self.seek_relative(-3))
+        self.controls_window.bind('4', lambda event: self.seek_relative(-4))
+        self.controls_window.bind('5', lambda event: self.seek_relative(-5))
+        self.controls_window.bind('6', lambda event: self.seek_relative(-6))
+        self.controls_window.bind('7', lambda event: self.seek_relative(-7))
+        self.controls_window.bind('8', lambda event: self.seek_relative(-8))
+        self.controls_window.bind('9', lambda event: self.seek_relative(-9))
+        self.controls_window.bind('+', lambda event: self.jump_to_next_subtitle)
+        
+
 
         # Subtitle Sections Frame
         subtitle_frame = tk.Frame(self.controls_window)
@@ -514,6 +542,7 @@ class VideoPlayer:
         :param offset: Time offset in seconds (positive for forward, negative for backward)
         """
         try:
+            self.slider_update_in_progress = True
             current_time = self.player.get_time()
             new_time = max(0, current_time + (offset * 1000))  # Convert to milliseconds
             self.player.set_time(int(new_time))
@@ -527,7 +556,7 @@ class VideoPlayer:
         Seek to a specific position in the video based on the slider.
         """
         try:
-            if self.player.is_playing():
+            if self.player.is_playing() and not self.slider_update_in_progress:
                 length = self.player.get_length()
                 seek_time = (int(value) / 1000) * length
                 self.player.set_time(int(seek_time))
@@ -804,6 +833,52 @@ class VideoPlayer:
         Refresh the subtitle tracks UI elements if needed.
         """
         self.load_subtitle_tracks()
+
+    def rewind_seconds(self, seconds):
+        """
+        Rewind the video by the specified number of seconds.
+        
+        Args:
+            seconds (int): Number of seconds to rewind
+        """
+        try:
+            current_time = self.player.get_time()  # Current time in milliseconds
+            new_time = max(0, current_time - (seconds * 1000))  # Ensure we don't go below 0
+            self.player.set_time(int(new_time))
+            logging.info(f"Rewound video by {seconds} seconds")
+        except Exception as e:
+            logging.error(f"Error rewinding video: {e}")
+            messagebox.showerror("Error", f"Failed to rewind video.\n{str(e)}")
+
+    def jump_to_next_subtitle(self, event=None):
+        """
+        Jump to the beginning of the next subtitle fragment in left_subtitles.
+        """
+        try:
+            if not self.left_subtitles:
+                logging.info("No left subtitles loaded to jump to")
+                return
+
+            current_time = self.player.get_time() / 1000  # Convert to seconds
+            next_subtitle = None
+
+            # Find the next subtitle that starts after current time
+            for subtitle in self.left_subtitles:
+                if subtitle['start'] > current_time:
+                    next_subtitle = subtitle
+                    break
+
+            if next_subtitle:
+                # Jump to the start time of the next subtitle
+                self.player.set_time(int(next_subtitle['start'] * 1000)-500)
+                logging.info(f"Jumped to next subtitle at {next_subtitle['start']} seconds")
+            else:
+                logging.info("No next subtitle found")
+
+        except Exception as e:
+            logging.error(f"Error jumping to next subtitle: {e}")
+            messagebox.showerror("Error", f"Failed to jump to next subtitle.\n{str(e)}")
+
 
 if __name__ == "__main__":
     try:
