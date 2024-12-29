@@ -546,6 +546,7 @@ class VideoPlayer:
             current_time = self.player.get_time()
             new_time = max(0, current_time + (offset * 1000))  # Convert to milliseconds
             self.player.set_time(int(new_time))
+            self.slider_update_in_progress = False
             logging.info(f"Seeked {'forward' if offset > 0 else 'backward'} by {abs(offset)} seconds.")
         except Exception as e:
             logging.error(f"Error seeking relative: {e}")
@@ -558,7 +559,7 @@ class VideoPlayer:
         try:
             if self.player.is_playing() and not self.slider_update_in_progress:
                 length = self.player.get_length()
-                seek_time = (int(value) / 1000) * length
+                seek_time = (float(value) / 1000.0) * length
                 self.player.set_time(int(seek_time))
                 logging.info(f"Seeking to: {seek_time} ms")
         except Exception as e:
