@@ -8,6 +8,7 @@ from screeninfo import get_monitors
 import re
 from datetime import timedelta
 import json
+import time
 
 # Configure logging
 logging.basicConfig(
@@ -23,6 +24,11 @@ DATA_FILE = "video_player_data.json"
 
 class VideoPlayer:
     def __init__(self, master):
+
+        self.last_user_seek_time = 0
+        self.last_update_time = 0
+        self.last_position = 0
+
         self.slider_update_in_progress = False
         self.master = master
         self.master.title("Main Video Window")
@@ -80,7 +86,8 @@ class VideoPlayer:
         self.master.bind('8', lambda event: self.seek_relative(-8))
         self.master.bind('9', lambda event: self.seek_relative(-9))
         self.master.bind('<Right>', lambda event: self.seek_relative(5))
-        self.master.bind('+', self.jump_to_next_subtitle)
+        self.master.bind('<plus>', self.jump_to_next_subtitle)
+        self.master.bind('*', self.cycle_audio_track)  # Add binding for * key
         
 
         
@@ -299,7 +306,8 @@ class VideoPlayer:
         self.controls_window.bind('7', lambda event: self.seek_relative(-7))
         self.controls_window.bind('8', lambda event: self.seek_relative(-8))
         self.controls_window.bind('9', lambda event: self.seek_relative(-9))
-        self.controls_window.bind('+', lambda event: self.jump_to_next_subtitle)
+        self.controls_window.bind('<plus>', self.jump_to_next_subtitle)
+        self.controls_window.bind('*', self.cycle_audio_track)  # Add binding for * key
         
 
 
@@ -539,29 +547,42 @@ class VideoPlayer:
     def seek_relative(self, offset):
         """
         Seek relative to the current position.
-        :param offset: Time offset in seconds (positive for forward, negative for backward)
         """
         try:
-            self.slider_update_in_progress = True
-            current_time = self.player.get_time()
-            new_time = max(0, current_time + (offset * 1000))  # Convert to milliseconds
-            self.player.set_time(int(new_time))
-            self.slider_update_in_progress = False
-            logging.info(f"Seeked {'forward' if offset > 0 else 'backward'} by {abs(offset)} seconds.")
+            current_time = time.time()
+            # Only process seek if it's been at least 0.5 seconds since the last seek
+            if current_time - self.last_user_seek_time > 0.5:
+                self.slider_update_in_progress = True
+                current_time_ms = self.player.get_time()
+                new_time = max(0, current_time_ms + (offset * 1000))  # Convert to milliseconds
+                self.player.set_time(int(new_time))
+                self.last_user_seek_time = current_time
+                self.slider_update_in_progress = False
+                logging.info(f"Seeked {'forward' if offset > 0 else 'backward'} by {abs(offset)} seconds.")
         except Exception as e:
             logging.error(f"Error seeking relative: {e}")
             messagebox.showerror("Error", f"Failed to seek relative.\n{str(e)}")
-
+    
     def seek(self, value):
         """
         Seek to a specific position in the video based on the slider.
         """
         try:
-            if self.player.is_playing() and not self.slider_update_in_progress:
+            current_time = time.time()
+            # Only process seek if it's been at least 0.5 seconds since the last seek
+            # and if it's a user-initiated seek (not an automatic update)
+            if (not self.slider_update_in_progress and 
+                current_time - self.last_user_seek_time > 0.5):
+                
                 length = self.player.get_length()
                 seek_time = (float(value) / 1000.0) * length
-                self.player.set_time(int(seek_time))
-                logging.info(f"Seeking to: {seek_time} ms")
+                
+                # Only seek if the change is significant (more than 1 second)
+                current_position = self.player.get_time()
+                if abs(current_position - seek_time) > 1000:  # 1000ms = 1 second
+                    self.player.set_time(int(seek_time))
+                    self.last_user_seek_time = current_time
+                    logging.info(f"User seeking to: {seek_time} ms")
         except Exception as e:
             logging.error(f"Error seeking video: {e}")
             messagebox.showerror("Error", f"Failed to seek video.\n{str(e)}")
@@ -583,23 +604,34 @@ class VideoPlayer:
         Update the time slider based on the current playback position.
         """
         if self.is_closed:
-            return  # Exit if the window has been closed
+            return
 
         try:
-            if self.player.is_playing():
-                current_time = self.player.get_time()  # in milliseconds
-                length = self.player.get_length()  # in milliseconds
+            current_time = time.time()
+            if self.player.is_playing() and current_time - self.last_update_time >= 0.5:
+                position_ms = self.player.get_time()
+                length = self.player.get_length()
+                
                 if length > 0:
-                    position = (current_time / length) * 1000
-                    self.time_slider.set(int(position))
+                    position = (position_ms / length) * 1000
+                    current_pos = float(self.time_slider.get())
+                    
+                    # Only update if position has changed significantly (more than 1%)
+                    if abs(current_pos - position) > 10:  # 1% of 1000
+                        self.slider_update_in_progress = True
+                        self.time_slider.set(int(position))
+                        self.last_position = position
+                        self.last_update_time = current_time
+                        self.slider_update_in_progress = False
+                    
                     self.update_time_label()
         except Exception as e:
             logging.error(f"Error updating slider: {e}")
 
-        # Schedule the next update
+        # Schedule the next update with a longer interval
         if not self.is_closed:
             self.master.after(500, self.update_slider)
-        self.update_subtitles()  # Update subtitles along with the slider
+        self.update_subtitles()
 
     def update_time_label(self):
         """
@@ -864,7 +896,7 @@ class VideoPlayer:
             next_subtitle = None
 
             # Find the next subtitle that starts after current time
-            for subtitle in self.left_subtitles:
+            for subtitle in self.left_subtitles[self.left_subtitle_index:]:
                 if subtitle['start'] > current_time:
                     next_subtitle = subtitle
                     break
@@ -879,6 +911,43 @@ class VideoPlayer:
         except Exception as e:
             logging.error(f"Error jumping to next subtitle: {e}")
             messagebox.showerror("Error", f"Failed to jump to next subtitle.\n{str(e)}")
+
+    def cycle_audio_track(self, event=None):
+        """
+        Cycle through available audio tracks when * key is pressed.
+        Skips the disabled (-1) track.
+        """
+        try:
+            descs = self.player.audio_get_track_description()
+            if not descs:
+                logging.info("No audio tracks available to cycle through")
+                return
+
+            # Get list of valid track IDs (excluding -1/disabled)
+            valid_tracks = [track[0] for track in descs if track[0] >= 0]
+            if not valid_tracks:
+                logging.info("No valid audio tracks to cycle through")
+                return
+
+            # Find current track index
+            current_track = self.audio_var.get()
+            try:
+                current_index = valid_tracks.index(current_track)
+            except ValueError:
+                # If current track is not in valid tracks (e.g., -1), start from beginning
+                current_index = -1
+
+            # Get next track (cycle back to beginning if at end)
+            next_index = (current_index + 1) % len(valid_tracks)
+            next_track = valid_tracks[next_index]
+
+            # Set the new track
+            self.audio_var.set(next_track)
+            self.set_audio_track()
+            logging.info(f"Cycled to audio track: {next_track}")
+        except Exception as e:
+            logging.error(f"Error cycling audio track: {e}")
+            messagebox.showerror("Error", f"Failed to cycle audio track.\n{str(e)}")
 
 
 if __name__ == "__main__":
