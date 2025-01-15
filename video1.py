@@ -9,6 +9,7 @@ import re
 from datetime import timedelta
 import json
 import time
+from openai import OpenAI
 
 # Configure logging
 logging.basicConfig(
@@ -199,9 +200,32 @@ class VideoPlayer:
             if video_data:
                 left_sub_path = video_data.get('left_subtitle')
                 right_sub_path = video_data.get('right_subtitle')
+                #additional_text_path = video_data.get('additional_text')
                 last_time = video_data.get('last_playback_time', 0)
                 self.current_audio_track = video_data.get('audio_track', -1)
                 self.current_subtitle_track = video_data.get('subtitle_track', -1)
+                
+                # Restore volume if available
+                saved_volume = video_data.get('volume')
+                if saved_volume is not None:
+                    self.player.audio_set_volume(saved_volume)
+                    self.volume_slider.set(saved_volume)
+                    logging.info(f"Restored volume to: {saved_volume}")
+
+                # Load additional text if path exists
+                # if additional_text_path and os.path.exists(additional_text_path):
+                #     try:
+                #         with open(additional_text_path, 'r', encoding='utf-8') as f:
+                #             content = f.read()
+                #         self.additional_text_text.config(state=tk.NORMAL)
+                #         self.additional_text_text.delete(1.0, tk.END)
+                #         self.additional_text_text.insert(tk.END, content)
+                #         self.additional_text_text.config(state=tk.DISABLED)
+                #         self.additional_text_path = additional_text_path
+                #         logging.info(f"Loaded persisted additional text from {additional_text_path}")
+                #     except Exception as e:
+                #         logging.error(f"Error loading persisted additional text: {e}")
+                #         messagebox.showwarning("Warning", f"Failed to load additional text file: {additional_text_path}")
 
                 # Automatically load subtitles if paths exist
                 if left_sub_path and os.path.exists(left_sub_path):
@@ -307,13 +331,13 @@ class VideoPlayer:
         self.controls_window.bind('8', lambda event: self.seek_relative(-8))
         self.controls_window.bind('9', lambda event: self.seek_relative(-9))
         self.controls_window.bind('<plus>', self.jump_to_next_subtitle)
-        self.controls_window.bind('*', self.cycle_audio_track)  # Add binding for * key
+        self.controls_window.bind('*', self.cycle_audio_track) 
         
 
 
         # Subtitle Sections Frame
         subtitle_frame = tk.Frame(self.controls_window)
-        subtitle_frame.grid(row=0, column=0, columnspan=2, padx=10, pady=10, sticky="ew")
+        subtitle_frame.grid(row=0, column=0, columnspan=3, padx=10, pady=10, sticky="ew")
 
         # Left Subtitle Section
         left_subtitle_frame = tk.LabelFrame(subtitle_frame, text="Subtitles 1")
@@ -335,8 +359,40 @@ class VideoPlayer:
         self.right_subtitle_btn = tk.Button(right_subtitle_frame, text="Select SRT File", command=lambda: self.load_subtitles('right'))
         self.right_subtitle_btn.pack(pady=5)
 
+        # AI explanation section
+        ai_frame = tk.LabelFrame(subtitle_frame, text="AI Explanation")
+        ai_frame.grid(row=0, column=2, padx=5, pady=5, sticky="nsew")
+        
+        text_scroll_frame = tk.Frame(ai_frame)
+        text_scroll_frame.pack(padx=5, pady=5, fill=tk.BOTH, expand=True)        
+        self.ai_text = tk.Text(text_scroll_frame, height=15, width=40, wrap=tk.WORD, font=("Arial", 14))
+        self.ai_text.pack(padx=5, pady=5, fill=tk.BOTH, expand=True)
+
+        self.ai_text_btn = tk.Button(ai_frame, text="Get AI Explanation", command=self.get_selected_text_explanation)
+        self.ai_text_btn.pack(pady=5)
+
+        # Additional text section
+        # additional_text_frame = tk.LabelFrame(subtitle_frame, text="Additional Text")
+        # additional_text_frame.grid(row=0, column=2, padx=5, pady=5, sticky="nsew")
+
+        # # Create a frame to hold the text widget and scrollbar
+        # text_scroll_frame = tk.Frame(additional_text_frame)
+        # text_scroll_frame.pack(padx=5, pady=5, fill=tk.BOTH, expand=True)
+
+        # # Add scrollbar
+        # text_scrollbar = tk.Scrollbar(text_scroll_frame)
+        # text_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # self.additional_text_text = tk.Text(text_scroll_frame, height=15, width=40, wrap=tk.WORD, font=("Arial", 14), yscrollcommand=text_scrollbar.set)
+        # self.additional_text_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # text_scrollbar.config(command=self.additional_text_text.yview)
+
+        # self.additional_text_btn = tk.Button(additional_text_frame, text="Select Text", command=lambda: self.load_additional_text())
+        # self.additional_text_btn.pack(pady=5)
+
         subtitle_frame.columnconfigure(0, weight=1)
         subtitle_frame.columnconfigure(1, weight=1)
+        subtitle_frame.columnconfigure(2, weight=1)
 
         # Control Buttons Frame
         buttons_frame = tk.Frame(self.controls_window)
@@ -680,17 +736,20 @@ class VideoPlayer:
                     # Get current playback time in seconds
                     current_time = self.player.get_time() / 1000 if self.player.get_time() > 0 else 0
 
-                    # Get subtitle file paths
+                    # Get subtitle file paths and additional text path
                     left_sub_path = getattr(self, 'left_subtitle_path', None)
                     right_sub_path = getattr(self, 'right_subtitle_path', None)
+                    #additional_text_path = getattr(self, 'additional_text_path', None)
 
                     # Update persistent data
                     self.persistent_data[video_path] = {
                         'left_subtitle': left_sub_path,
                         'right_subtitle': right_sub_path,
+                        #'additional_text': additional_text_path,
                         'last_playback_time': current_time,
                         'audio_track': self.current_audio_track,
-                        'subtitle_track': self.current_subtitle_track
+                        'subtitle_track': self.current_subtitle_track,
+                        'volume': self.player.audio_get_volume()  # Save current volume
                     }
 
                     self.save_persisted_data()
@@ -949,6 +1008,85 @@ class VideoPlayer:
             logging.error(f"Error cycling audio track: {e}")
             messagebox.showerror("Error", f"Failed to cycle audio track.\n{str(e)}")
 
+    # def load_additional_text(self):
+    #     """
+    #     Load additional text from a file and display it in the additional text frame.
+    #     """
+    #     file_path = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt")])
+    #     if file_path:
+    #         try:
+    #             with open(file_path, 'r', encoding='utf-8') as f:
+    #                 content = f.read()
+                
+    #             # Store the path for persistence
+    #             self.additional_text_path = os.path.abspath(file_path)
+                
+    #             # Update the text widget
+    #             self.additional_text_text.config(state=tk.NORMAL)
+    #             self.additional_text_text.delete(1.0, tk.END)
+    #             self.additional_text_text.insert(tk.END, content)
+    #             self.additional_text_text.config(state=tk.DISABLED)
+    #             logging.info(f"Loaded additional text from: {file_path}")
+    #         except Exception as e:
+    #             logging.error(f"Error loading additional text: {e}")
+    #             messagebox.showerror("Error", f"Failed to load additional text.\n{str(e)}")
+
+    def get_selected_text_explanation(self):
+        """
+        Get the selected text from left subtitle text widget and pass it to AI explanation.
+        If no text is selected, show a message to the user.
+        """
+        try:
+            # Get selected text from left subtitle text widget
+            if self.left_subtitle_text.tag_ranges(tk.SEL):
+                selected_text = self.left_subtitle_text.get(tk.SEL_FIRST, tk.SEL_LAST)
+                if selected_text.strip():
+                    self.get_explanation_from_ai(selected_text)
+                else:
+                    messagebox.showinfo("Info", "Please select some text to get an explanation.")
+            else:
+                messagebox.showinfo("Info", "Please select some text from the subtitles to get an explanation.")
+        except Exception as e:
+            logging.error(f"Error getting selected text explanation: {e}")
+            messagebox.showerror("Error", f"Failed to get explanation for selected text.\n{str(e)}")
+
+    def get_explanation_from_ai(self, text, language="English"):
+        """
+        Get an explanation for the given text from an AI model.
+        
+        Args:
+            text (str): Text to get an explanation for
+        
+        Returns:
+            str: Explanation generated by the AI model
+        """
+        # Placeholder implementation
+        api_key = os.getenv('OPENAI_API_KEY')
+        print(api_key)
+        client = OpenAI(api_key=api_key)
+        count_words = len(text.split())
+        if count_words<3:
+            prompt = f"Briefly explain the following word in simple terms: \"{text}\""
+        else:
+            prompt = f"Briefly explain the following text in simple terms: \"{text}\""
+
+        completion = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Act as a helpful expert with ten years of experience that provides the best possible answers to my questions and requests. Your domain of expertise is teaching "+language+"."},
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        )
+
+        self.ai_text.config(state=tk.NORMAL)
+        self.ai_text.delete(1.0, tk.END)
+        self.ai_text.insert(tk.END, completion.choices[0].message.content)
+        self.ai_text.config(state=tk.DISABLED)
+
+        return completion.choices[0].message
 
 if __name__ == "__main__":
     try:
