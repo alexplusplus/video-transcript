@@ -10,6 +10,7 @@ from datetime import timedelta
 import json
 import time
 from openai import OpenAI
+import webbrowser
 
 # Configure logging
 logging.basicConfig(
@@ -410,6 +411,10 @@ class VideoPlayer:
         self.fullscreen_btn = tk.Button(buttons_frame, text="Fullscreen", command=self.toggle_fullscreen)
         self.fullscreen_btn.grid(row=0, column=2, padx=5)
 
+        # Playphrase Button
+        self.playphrase_btn = tk.Button(buttons_frame, text="Playphrase", command=self.playphrase)
+        self.playphrase_btn.grid(row=0, column=3, padx=5)
+
         # Audio Streams Frame
         audio_frame = tk.LabelFrame(self.controls_window, text="Audio Streams")
         audio_frame.grid(row=1, column=0, padx=10, pady=10, sticky="e")
@@ -552,6 +557,19 @@ class VideoPlayer:
             logging.error(f"Error toggling fullscreen: {e}")
             messagebox.showerror("Error", f"Failed to toggle fullscreen.\n{str(e)}")
 
+    def playphrase(self):
+        """
+        Open a new browser window and navigate to the playphrase.me URL.
+        URL has the following format: https://www.playphrase.me/#/search?q= and the selected text from the left subtitle section is appended to the end of the URL.
+        """
+        try:
+            # Get the selected text from the left subtitle section
+            selected_text = self.left_subtitle_text.get(tk.SEL_FIRST, tk.SEL_LAST).strip()
+            # Open a new browser window and navigate to the playphrase.me URL
+            webbrowser.open(f"https://www.playphrase.me/#/search?q={selected_text}")
+        except Exception as e:
+            logging.error(f"Error playing phrase: {e}")
+            messagebox.showerror("Error", f"Failed to play phrase.\n{str(e)}")
     def move_to_same_screen(self):
         """
         Ensure the main window is on the same screen as the controls window before fullscreen.
@@ -624,21 +642,29 @@ class VideoPlayer:
         Seek to a specific position in the video based on the slider.
         """
         try:
-            current_time = time.time()
-            # Only process seek if it's been at least 0.5 seconds since the last seek
-            # and if it's a user-initiated seek (not an automatic update)
-            if (not self.slider_update_in_progress and 
-                current_time - self.last_user_seek_time > 0.5):
-                
-                length = self.player.get_length()
+            # If this is a programmatic update, ignore it
+            if self.slider_update_in_progress:
+                return
+
+            length = self.player.get_length()
+            if length > 0:
+                # Calculate the target seek time in milliseconds
                 seek_time = (float(value) / 1000.0) * length
                 
-                # Only seek if the change is significant (more than 1 second)
-                current_position = self.player.get_time()
-                if abs(current_position - seek_time) > 1000:  # 1000ms = 1 second
-                    self.player.set_time(int(seek_time))
-                    self.last_user_seek_time = current_time
-                    logging.info(f"User seeking to: {seek_time} ms")
+                # Update the player position immediately
+                self.player.set_time(int(seek_time))
+                self.last_user_seek_time = time.time()
+                
+                # Force update the time label
+                self.update_time_label()
+                logging.info(f"User seeking to: {seek_time} ms")
+                
+                # If the player was paused, play a single frame to show the new position
+                if not self.player.is_playing():
+                    self.player.play()
+                    self.player.set_time(int(seek_time))  # Set time again to ensure accuracy
+                    self.master.after(100, self.player.pause)  # Pause after a short delay
+                
         except Exception as e:
             logging.error(f"Error seeking video: {e}")
             messagebox.showerror("Error", f"Failed to seek video.\n{str(e)}")

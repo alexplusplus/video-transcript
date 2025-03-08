@@ -18,20 +18,32 @@ def check_ffmpeg():
 def get_subtitle_streams(video_file):
     try:
         # Get video file information in JSON format
-        result = subprocess.run([
+        process = subprocess.Popen([
             "ffprobe",
             "-v", "quiet",
             "-print_format", "json",
             "-show_streams",
             "-select_streams", "s",
             video_file
-        ], check=True, capture_output=True, text=True)
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False)
         
-        # Parse JSON output
-        info = json.loads(result.stdout)
-        return info.get("streams", [])
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Error getting subtitle information: {e.stderr}")
+        stdout, stderr = process.communicate()
+        
+        if process.returncode != 0:
+            logging.error(f"FFprobe error: {stderr.decode('utf-8', errors='replace')}")
+            return []
+            
+        # Decode the output using utf-8 with error handling
+        try:
+            output = stdout.decode('utf-8', errors='replace')
+            info = json.loads(output)
+            return info.get("streams", [])
+        except json.JSONDecodeError as e:
+            logging.error(f"Error decoding JSON: {e}")
+            return []
+            
+    except Exception as e:
+        logging.error(f"Error getting subtitle information: {str(e)}")
         return []
 
 def extract_subtitles(video_file):
